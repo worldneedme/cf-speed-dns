@@ -77,33 +77,6 @@ def update_dns_record(record_id, name, cf_ip):
         print(f"Update Error: {e}")
         return "Update Error"
 
-# 创建 DNS 记录 (新增功能)
-def create_dns_record(name, cf_ip):
-    url = f'https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records'
-    data = {
-        'type': 'A',
-        'name': name,
-        'content': cf_ip,
-        'ttl': 60,
-        'proxied': False
-    }
-
-    try:
-        response = requests.post(url, headers=headers, json=data)
-
-        if response.status_code == 200:
-            print(f"cf_dns_create success: ---- Time: " + str(
-                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())) + " ---- ip：" + str(cf_ip))
-            return "ip:" + str(cf_ip) + "创建" + str(name) + "成功"
-        else:
-            traceback.print_exc()
-            print(f"cf_dns_create ERROR: ---- Time: " + str(
-                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())) + " ---- MESSAGE: " + str(response.text))
-            return "ip:" + str(cf_ip) + "创建" + str(name) + "失败"
-    except Exception as e:
-        print(f"Create Error: {e}")
-        return "Create Error"
-
 # 消息推送
 def push_plus(content):
     if not PUSHPLUS_TOKEN:
@@ -136,17 +109,18 @@ def main():
     dns_records = get_dns_records(CF_DNS_NAME)
     push_plus_content = []
     
-    # 遍历 IP 地址列表
-    for index, ip_address in enumerate(ip_addresses):
-        # 如果现有记录够用，就更新
-        if index < len(dns_records):
-            dns = update_dns_record(dns_records[index], CF_DNS_NAME, ip_address)
-        # 如果不够用，就创建新记录
-        else:
-            dns = create_dns_record(CF_DNS_NAME, ip_address)
+    # 获取要更新的数量（取 IP 数和 记录数 的最小值）
+    # 这样如果有1个记录，就只更新1个IP，避免 IndexError
+    count = min(len(ip_addresses), len(dns_records))
+    
+    # 遍历更新
+    for index in range(count):
+        ip_address = ip_addresses[index]
+        dns = update_dns_record(dns_records[index], CF_DNS_NAME, ip_address)
         push_plus_content.append(dns)
 
-    push_plus('\n'.join(push_plus_content))
+    if push_plus_content:
+        push_plus('\n'.join(push_plus_content))
 
 if __name__ == '__main__':
     main()
