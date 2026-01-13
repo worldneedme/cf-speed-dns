@@ -10,7 +10,8 @@ CF_ZONE_ID      =   os.environ["CF_ZONE_ID"]
 CF_DNS_NAME     =   os.environ["CF_DNS_NAME"]
 
 # pushplus_token
-PUSHPLUS_TOKEN  =   os.environ["PUSHPLUS_TOKEN"]
+# pushplus_token
+PUSHPLUS_TOKEN  =   os.environ.get("PUSHPLUS_TOKEN", "")
 
 
 
