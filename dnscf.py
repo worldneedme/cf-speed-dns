@@ -10,10 +10,7 @@ CF_ZONE_ID      =   os.environ["CF_ZONE_ID"]
 CF_DNS_NAME     =   os.environ["CF_DNS_NAME"]
 
 # pushplus_token
-# pushplus_token
 PUSHPLUS_TOKEN  =   os.environ.get("PUSHPLUS_TOKEN", "")
-
-
 
 headers = {
     'Authorization': f'Bearer {CF_API_TOKEN}',
@@ -38,15 +35,20 @@ def get_cf_speed_test_ip(timeout=10, max_retries=5):
 def get_dns_records(name):
     def_info = []
     url = f'https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records'
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        records = response.json()['result']
-        for record in records:
-            if record['name'] == name:
-                def_info.append(record['id'])
-        return def_info
-    else:
-        print('Error fetching DNS records:', response.text)
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            records = response.json()['result']
+            for record in records:
+                if record['name'] == name:
+                    def_info.append(record['id'])
+            return def_info
+        else:
+            print('Error fetching DNS records:', response.text)
+            return []
+    except Exception as e:
+        print(f"Error fetching DNS records: {e}")
+        return []
 
 # 更新 DNS 记录
 def update_dns_record(record_id, name, cf_ip):
@@ -54,23 +56,59 @@ def update_dns_record(record_id, name, cf_ip):
     data = {
         'type': 'A',
         'name': name,
-        'content': cf_ip
+        'content': cf_ip,
+        'ttl': 60,
+        'proxied': False
     }
 
-    response = requests.put(url, headers=headers, json=data)
+    try:
+        response = requests.put(url, headers=headers, json=data)
 
-    if response.status_code == 200:
-        print(f"cf_dns_change success: ---- Time: " + str(
-            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())) + " ---- ip：" + str(cf_ip))
-        return "ip:" + str(cf_ip) + "解析" + str(name) + "成功"
-    else:
-        traceback.print_exc()
-        print(f"cf_dns_change ERROR: ---- Time: " + str(
-            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())) + " ---- MESSAGE: " + str(response))
-        return "ip:" + str(cf_ip) + "解析" + str(name) + "失败"
+        if response.status_code == 200:
+            print(f"cf_dns_change success: ---- Time: " + str(
+                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())) + " ---- ip：" + str(cf_ip))
+            return "ip:" + str(cf_ip) + "解析" + str(name) + "成功"
+        else:
+            traceback.print_exc()
+            print(f"cf_dns_change ERROR: ---- Time: " + str(
+                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())) + " ---- MESSAGE: " + str(response.text))
+            return "ip:" + str(cf_ip) + "解析" + str(name) + "失败"
+    except Exception as e:
+        print(f"Update Error: {e}")
+        return "Update Error"
+
+# 创建 DNS 记录 (新增功能)
+def create_dns_record(name, cf_ip):
+    url = f'https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records'
+    data = {
+        'type': 'A',
+        'name': name,
+        'content': cf_ip,
+        'ttl': 60,
+        'proxied': False
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=data)
+
+        if response.status_code == 200:
+            print(f"cf_dns_create success: ---- Time: " + str(
+                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())) + " ---- ip：" + str(cf_ip))
+            return "ip:" + str(cf_ip) + "创建" + str(name) + "成功"
+        else:
+            traceback.print_exc()
+            print(f"cf_dns_create ERROR: ---- Time: " + str(
+                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())) + " ---- MESSAGE: " + str(response.text))
+            return "ip:" + str(cf_ip) + "创建" + str(name) + "失败"
+    except Exception as e:
+        print(f"Create Error: {e}")
+        return "Create Error"
 
 # 消息推送
 def push_plus(content):
+    if not PUSHPLUS_TOKEN:
+        return
+    
     url = 'http://www.pushplus.plus/send'
     data = {
         "token": PUSHPLUS_TOKEN,
@@ -81,19 +119,31 @@ def push_plus(content):
     }
     body = json.dumps(data).encode(encoding='utf-8')
     headers = {'Content-Type': 'application/json'}
-    requests.post(url, data=body, headers=headers)
+    try:
+        requests.post(url, data=body, headers=headers)
+    except Exception as e:
+        print(f"Push Error: {e}")
 
 # 主函数
 def main():
     # 获取最新优选IP
     ip_addresses_str = get_cf_speed_test_ip()
+    if not ip_addresses_str:
+        print("Failed to get IP addresses")
+        return
+        
     ip_addresses = ip_addresses_str.split(',')
     dns_records = get_dns_records(CF_DNS_NAME)
     push_plus_content = []
+    
     # 遍历 IP 地址列表
     for index, ip_address in enumerate(ip_addresses):
-        # 执行 DNS 变更
-        dns = update_dns_record(dns_records[index], CF_DNS_NAME, ip_address)
+        # 如果现有记录够用，就更新
+        if index < len(dns_records):
+            dns = update_dns_record(dns_records[index], CF_DNS_NAME, ip_address)
+        # 如果不够用，就创建新记录
+        else:
+            dns = create_dns_record(CF_DNS_NAME, ip_address)
         push_plus_content.append(dns)
 
     push_plus('\n'.join(push_plus_content))
